@@ -52,15 +52,24 @@ def extract(response: Any, fields: tuple[str, ...]) -> dict[str, Any]:
     return values
 
 
+def response_info(response):
+    if response is None:
+        return {"response_type": "None"}
+    return {"response_type": type(response).__name__,
+            "response_id": getattr(response, "id", None),
+            "payload_length": len(getattr(response, "payload", b""))}
+
+
 async def probe_command(send, command, expected, fields, timeout):
     """A failed optional request does not invalidate the other groups."""
     try:
         response = await asyncio.wait_for(send(command), timeout)
         if not isinstance(response, expected):
-            return {"status": "unexpected_response", "values": {}}
+            return {"status": "no_reply" if response is None else "unexpected_response",
+                    **response_info(response), "values": {}}
         values = extract(response, fields)
         return {"status": "ok" if any(v is not None for v in values.values())
-                else "no_decoded_values", "values": values}
+                else "no_decoded_values", **response_info(response), "values": values}
     except Exception as exc:
         # Exception text may contain account information or raw cloud data.
         return {"status": "failed", "error_type": type(exc).__name__, "values": {}}
@@ -133,13 +142,14 @@ async def run(args):
                                 values = extract(first, CAPABILITIES)
                                 extra_status = "ok"
                             else:
-                                extra_status = "unexpected_response"
+                                extra_status = response_info(extra)
                         except Exception as exc:
                             extra_status = type(exc).__name__
                     report["capabilities"] = {"status": "ok", "additional_status": extra_status,
                                               "values": values}
                 else:
-                    report["capabilities"] = {"status": "unexpected_response", "values": {}}
+                    report["capabilities"] = {"status": "no_reply" if first is None else "unexpected_response",
+                                              **response_info(first), "values": {}}
             except Exception as exc:
                 report["capabilities"] = {"status": "failed", "error_type": type(exc).__name__,
                                           "values": {}}
