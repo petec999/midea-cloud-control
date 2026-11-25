@@ -19,7 +19,10 @@ import tempfile
 import unicodedata
 
 import aiohttp
-from midealocal.cloud import get_midea_cloud
+from midealocal.cloud import SUPPORTED_CLOUDS, get_midea_cloud
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+from hashlib import md5
 
 
 def normalized(name):
@@ -63,6 +66,28 @@ async def run(args):
                   "online": device.get("online"),
                   "serial_length": len(serial),
                   "serial_is_hex": bool(re.fullmatch(r"[0-9a-fA-F]+", serial))}
+        # Legacy appliance lists can contain AES-encrypted serial numbers.
+        # midea-beautiful-air decodes SN using the session data key, itself
+        # derived by decrypting accessToken with md5(app_key)[:16].
+        if report["serial_is_hex"] and len(serial) >= 64 and len(serial) % 32 == 0:
+            try:
+                app_key = str(SUPPORTED_CLOUDS["NetHome Plus"]["app_key"])
+                root_key = md5(app_key.encode("ascii")).hexdigest()[:16].encode("ascii")
+                session_key = unpad(AES.new(root_key, AES.MODE_ECB).decrypt(
+                    bytes.fromhex(cloud._access_token)), 16)
+                decoded = unpad(AES.new(session_key, AES.MODE_ECB).decrypt(
+                    bytes.fromhex(serial)), 16).decode("ascii")
+                if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", decoded):
+                    raise ValueError("Unexpected serial format")
+                serial = decoded
+                report["serial_decryption"] = "ok"
+                report["decoded_serial_length"] = len(serial)
+            except (ValueError, UnicodeError, TypeError):
+                report["serial_decryption"] = "failed"
+                report["status"] = "cannot_decode_serial"
+                print(json.dumps(report, indent=2))
+                return 2
+
         original_api = cloud._api_request
         original_fetch = cloud._fetch_lua_file
 
