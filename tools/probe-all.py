@@ -167,6 +167,62 @@ async def run(args):
             report["groups"][str(group)] = await probe_command(
                 send, command(group), response, GROUPS[group], args.timeout)
 
+        if args.alternative:
+            from midealocal.devices.ac import message as local
+            report["alternative"] = {}
+            async def raw_query(label, factory):
+                await asyncio.sleep(args.delay)
+                try:
+                    raw = bytes(factory().serialize())
+                    reply = await asyncio.wait_for(
+                        transparent_send(client._cloud, int(aid), raw, client._app_key),
+                        args.timeout)
+                    result = {"request_length": len(raw), "status": "no_reply"}
+                    if reply is not None:
+                        result = {"request_length": len(raw), "status": "reply",
+                                  "response_length": len(reply),
+                                  "response_id": reply[10] if len(reply) > 10 else None}
+                        # Decode only known device-state properties, not credentials or headers.
+                        if len(reply) > 12 and reply[10] == 0xB1:
+                            body = reply[10:-2]
+                            pos = 2
+                            properties = {}
+                            for _ in range(body[1]):
+                                if pos + 4 > len(body):
+                                    break
+                                tag = body[pos] | (body[pos+1] << 8)
+                                status, length = body[pos+2:pos+4]
+                                pos += 4
+                                if pos + length > len(body):
+                                    break
+                                if tag in (0x0017, 0x00E3):
+                                    properties[f"{tag:04x}"] = {
+                                        "status": status, "data": list(body[pos:pos+length])}
+                                pos += length
+                            result["properties"] = properties
+                        elif len(reply) > 13 and reply[10] == 0xC1:
+                            result["group"] = reply[13] & 0x0F
+                            try:
+                                decoded = ac.Response.construct(reply)
+                                result["values"] = extract(decoded, GROUPS.get(result["group"], ()))
+                            except Exception as exc:
+                                result["decode_error"] = type(exc).__name__
+                    report["alternative"][label] = result
+                except Exception as exc:
+                    report["alternative"][label] = {"status": "failed", "error_type": type(exc).__name__}
+
+            for label, tag in (("display_property", 0x0017), ("ieco_property", 0x00E3)):
+                class SingleProperty(local.MessageNewProtocolQuery):
+                    _query_params = (tag,)
+                await raw_query(label, lambda: SingleProperty(args.protocol_version))
+            for group, name in ((1, "MessageGroupOneQuery"), (4, "MessagePowerQuery"),
+                                (5, "MessageHumidityQuery")):
+                cls = getattr(local, name, None)
+                if cls:
+                    await raw_query(f"short_group_{group}", lambda: cls(args.protocol_version))
+                else:
+                    report["alternative"][f"short_group_{group}"] = {"status": "library_unsupported"}
+
         await asyncio.sleep(args.delay)
         report["state_after"] = await probe_command(
             send, ac.GetStateCommand(), ac.StateResponse, STATE, args.timeout)
@@ -183,6 +239,8 @@ def main():
     parser.add_argument("--id", type=int, help="Optional appliance ID; auto-select a single appliance")
     parser.add_argument("--groups", nargs="+", type=int, choices=tuple(GROUPS),
                         default=list(GROUPS))
+    parser.add_argument("--alternative", action="store_true", help="Read B1 display/iECO and compact group queries using midea-local")
+    parser.add_argument("--protocol-version", type=int, choices=(0, 3), default=0)
     parser.add_argument("--delay", type=float, default=2.0, help="Seconds between requests (min 2)")
     parser.add_argument("--timeout", type=float, default=20.0, help="Timeout per request in seconds")
     args = parser.parse_args()
