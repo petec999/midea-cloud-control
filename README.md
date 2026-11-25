@@ -16,10 +16,10 @@ Midea's cloud endpoint:
 POST /v1/iot/secure/getToken  →  {"msg":"system error","errorCode":9999}
 ```
 
-**That endpoint has been switched off.** Appliances onboarded before the
+**The endpoint returned errors during development.** Appliances onboarded before the
 shutdown keep working, because their token was already stored. Anything
 onboarded afterwards cannot be added to Home Assistant at all — the vendor app
-still works, but local control is permanently unavailable.
+still works, but local control may be unavailable without another way to obtain the credentials.
 
 This integration takes a different route. The legacy endpoint
 
@@ -27,7 +27,7 @@ This integration takes a different route. The legacy endpoint
 POST /v1/appliance/transparent/send
 ```
 
-is still live. It relays a raw Midea protocol frame to the appliance *through
+worked during development. It relays a raw Midea protocol frame to the appliance *through
 the cloud*, and needs **no token and no key** — only a normal app login. That is
 the same path the vendor app uses, which is why the app keeps working when
 Home Assistant cannot connect.
@@ -83,6 +83,12 @@ python tools/probe.py list  --user EMAIL --password PW
 python tools/probe.py state --user EMAIL --password PW --id APPLIANCE_ID
 python tools/probe.py set   --user EMAIL --password PW --id APPLIANCE_ID --temp 22
 ```
+
+Do not commit credentials, access tokens, appliance identifiers or captured authentication responses. Command-line passwords can be visible in shell history and process listings; use a dedicated test environment and avoid sharing command output containing secrets.
+
+## Related project
+
+[Home IoT Telemetry](https://github.com/petec999/home-iot-telemetry) provides complementary Home Assistant dashboard diagnostics.
 
 ## Protocol notes
 
