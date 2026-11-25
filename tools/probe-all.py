@@ -117,6 +117,52 @@ async def run(args):
                                            command.tobytes(), client._app_key)
             return ac.Response.construct(frame) if frame is not None else None
 
+        if args.transport_check:
+            # The normal transport hides API errors behind a None return.
+            # Ask the library for typed errors; never print raw HTTP bodies.
+            from _mcc.protocol import (_ENDPOINT, aes_encrypt, aes_decrypt,
+                                       derive_data_key, wrap_frame, unwrap_reply)
+            import time
+
+            async def check(command):
+                start = time.monotonic()
+                try:
+                    cloud = client._cloud
+                    key = derive_data_key(cloud._access_token, client._app_key)
+                    data = cloud._make_general_data()
+                    data.update(order=aes_encrypt(wrap_frame(command.tobytes()), key),
+                                funId="0000", applianceId=str(aid))
+                    response = await asyncio.wait_for(
+                        cloud._api_request(endpoint=_ENDPOINT, data=data, raise_for_error=True),
+                        args.timeout)
+                    if response is None:
+                        result = {"status": "empty_api_result"}
+                    elif not response.get("reply"):
+                        result = {"status": "missing_reply"}
+                    else:
+                        raw = unwrap_reply(aes_decrypt(response["reply"], key))
+                        decoded = ac.Response.construct(raw)
+                        result = {"status": "ok", **response_info(decoded)}
+                except Exception as exc:
+                    result = {"status": "error", "error_type": type(exc).__name__}
+                    code = getattr(exc, "code", None)
+                    if isinstance(code, int):
+                        result["cloud_error_code"] = code
+                result["elapsed_seconds"] = round(time.monotonic() - start, 2)
+                return result
+
+            checks = {"state_1": await check(ac.GetStateCommand())}
+            if checks["state_1"]["status"] == "ok":
+                await asyncio.sleep(args.delay)
+                checks["state_2"] = await check(ac.GetStateCommand())
+                if checks["state_2"]["status"] == "ok":
+                    await asyncio.sleep(args.delay)
+                    checks["group_4"] = await check(ac.GetGroupDataCommand(4))
+                    await asyncio.sleep(args.delay)
+                    checks["state_3"] = await check(ac.GetStateCommand())
+            print(json.dumps(checks, indent=2))
+            return 0 if checks["state_1"]["status"] == "ok" else 2
+
         report = {"library_versions": {
             name: importlib.metadata.version(name)
             for name in ("msmart-ng", "midea-local")
@@ -239,6 +285,7 @@ def main():
     parser.add_argument("--id", type=int, help="Optional appliance ID; auto-select a single appliance")
     parser.add_argument("--groups", nargs="+", type=int, choices=tuple(GROUPS),
                         default=list(GROUPS))
+    parser.add_argument("--transport-check", action="store_true", help="Compare repeated state reads with one group request; show numeric API errors")
     parser.add_argument("--alternative", action="store_true", help="Read B1 display/iECO and compact group queries using midea-local")
     parser.add_argument("--protocol-version", type=int, choices=(0, 3), default=0)
     parser.add_argument("--delay", type=float, default=2.0, help="Seconds between requests (min 2)")
