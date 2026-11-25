@@ -117,6 +117,27 @@ async def run(args):
                                            command.tobytes(), client._app_key)
             return ac.Response.construct(frame) if frame is not None else None
 
+        if args.state_only:
+            raw = await asyncio.wait_for(transparent_send(
+                client._cloud, int(aid), ac.GetStateCommand().tobytes(),
+                client._app_key), args.timeout)
+            if raw is None:
+                print(json.dumps({"status": "no_reply"}))
+                return 2
+            decoded = ac.Response.construct(raw)
+            report = {"status": "ok", "values": extract(decoded, STATE)}
+            body = raw[10:-2]
+            if len(body) >= 19 and body[0] == 0xc0:
+                report["vendor_flags"] = {
+                    "eco": bool(body[9] & 0x10),
+                    "power_saving": bool(body[8] & 0x08),
+                    "strong_wind": bool(body[8] & 0x20),
+                    "turbo": bool(body[10] & 0x02),
+                    "display_code": (body[14] & 0x70) >> 4,
+                }
+            print(json.dumps(report, indent=2))
+            return 0
+
         if args.vendor_frames and args.test_eco:
             # Use only Jaśminowa and only a safe, simple cooling baseline.
             # Vendor Lua classic ECO command: full state with mobile fan flag
@@ -438,6 +459,7 @@ def main():
     parser.add_argument("--id", type=int, help="Optional appliance ID; auto-select a single appliance")
     parser.add_argument("--groups", nargs="+", type=int, choices=tuple(GROUPS),
                         default=list(GROUPS))
+    parser.add_argument("--state-only", action="store_true", help="Read one basic state and vendor flags; no writes")
     parser.add_argument("--vendor-frames", action="store_true", help="Probe vendor-specific read frames")
     parser.add_argument("--test-eco", action="store_true", help="Opt-in single vendor ECO command for Jaśminowa with guarded cooling baseline")
     parser.add_argument("--test-display", action="store_true", help="With --vendor-frames: send exactly one display toggle")
