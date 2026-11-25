@@ -123,7 +123,7 @@ class MideaCloudClient:
             return await self._query_locked(appliance_id)
 
     async def set_state(self, appliance_id: int, *, beep: bool = False,
-                        **changes: Any) -> StateResponse:
+                        verify: bool = False, **changes: Any) -> StateResponse:
         """Serialize read/merge/write; preserve non-null reported fields."""
         unknown = set(changes) - set(_CARRIED_STATE)
         if unknown or any(value is None for value in changes.values()):
@@ -140,7 +140,7 @@ class MideaCloudClient:
             for field, value in changes.items():
                 setattr(command, field, value)
             response = await self._send(appliance_id, command)
-            if not isinstance(response, StateResponse):
+            if verify or not isinstance(response, StateResponse):
                 # Some devices acknowledge without a complete state.
                 return await self._query_locked(appliance_id)
             return response
