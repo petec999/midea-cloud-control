@@ -117,6 +117,84 @@ async def run(args):
                                            command.tobytes(), client._app_key)
             return ac.Response.construct(frame) if frame is not None else None
 
+        if args.vendor_frames and args.test_eco:
+            # Use only Jaśminowa and only a safe, simple cooling baseline.
+            # Vendor Lua classic ECO command: full state with mobile fan flag
+            # and vendor timer encoding. No changes to unsupported properties.
+            import secrets
+            import unicodedata
+            name = "".join(c for c in unicodedata.normalize("NFKD",
+                str(appliances[aid].get("name", "")).casefold()) if not unicodedata.combining(c))
+            if name.strip() != "jasminowa":
+                print(json.dumps({"status": "wrong_device"}))
+                return 2
+
+            def crc(data):
+                value = 0
+                for byte in data:
+                    value ^= byte
+                    for _ in range(8):
+                        value = (value >> 1) ^ (0x8c if value & 1 else 0)
+                return value
+
+            def packet(body, kind):
+                body = bytearray(body)
+                body[-2] = 1 + secrets.randbelow(254)
+                body[-1] = crc(body[:-1])
+                data = bytearray([0xaa, 10 + len(body), 0xac, 0, 0, 0, 0, 0, 0, kind]) + body
+                data.append((-sum(data[1:])) & 255)
+                return bytes(data)
+
+            async def relay(frame):
+                return await asyncio.wait_for(transparent_send(
+                    client._cloud, int(aid), frame, client._app_key), args.timeout)
+
+            async def read():
+                raw = await relay(ac.GetStateCommand().tobytes())
+                if not raw or len(raw) < 29 or raw[10] != 0xc0:
+                    raise RuntimeError("No basic state")
+                return raw[10:-2]
+
+            def summary(b):
+                return {"power": bool(b[1] & 1), "mode": b[2] >> 5,
+                        "temperature": 16 + (b[2] & 15) + (0.5 if b[2] & 16 else 0),
+                        "fan": b[3] & 127, "eco": bool(b[9] & 16),
+                        "strong_wind": bool(b[8] & 32), "turbo": bool(b[10] & 2),
+                        "sleep": bool((b[8] & 3) or (b[9] & 64) or (b[10] & 1)),
+                        "power_saving": bool(b[8] & 8),
+                        "timer_on": bool(b[4] & 128), "timer_off": bool(b[5] & 128)}
+
+            before = await read()
+            state = summary(before)
+            report = {"before": state}
+            if (not state["power"] or state["mode"] != 2 or state["temperature"] != 26
+                    or state["fan"] != 102 or state["sleep"] or state["strong_wind"]
+                    or state["turbo"] or state["timer_on"] or state["timer_off"]
+                    or state["power_saving"] or state["eco"]):
+                report["status"] = "skipped: set COOL 26 C, AUTO fan, ECO/Turbo/Sleep/timers/power saving off"
+                print(json.dumps(report, indent=2))
+                return 2
+            body = bytearray(26)
+            body[0] = 0x40
+            body[1] = 0x03  # mobile, power on, silent
+            body[2] = before[2]
+            body[3] = before[3] | 0x80
+            body[4:7] = bytes([0x7f, 0x7f, 0xff])
+            body[7] = 0x30 | (before[7] & 0x0f)
+            body[8] = 0
+            body[9] = (before[9] & 0x2c) | 0x80
+            body[10] = ((before[10] & 0x20) >> 2) | (before[10] & 4)
+            # Preserve PMV and natural wind using vendor's response-to-set mapping.
+            pmv = before[14] & 15
+            body[17] = ((pmv & 8) << 4) | (0x40 if before[9] & 2 else 0)
+            body[18] = (pmv & 7) << 5
+            sent = await relay(packet(body, 2))
+            report["write_reply"] = bool(sent)
+            await asyncio.sleep(args.delay)
+            report["after"] = summary(await read())
+            print(json.dumps(report, indent=2))
+            return 0
+
         if args.vendor_frames:
             # Independent implementation of the vendor Lua query layouts.
             # No vendor source or private device identifiers are embedded here.
@@ -361,6 +439,7 @@ def main():
     parser.add_argument("--groups", nargs="+", type=int, choices=tuple(GROUPS),
                         default=list(GROUPS))
     parser.add_argument("--vendor-frames", action="store_true", help="Probe vendor-specific read frames")
+    parser.add_argument("--test-eco", action="store_true", help="Opt-in single vendor ECO command for Jaśminowa with guarded cooling baseline")
     parser.add_argument("--test-display", action="store_true", help="With --vendor-frames: send exactly one display toggle")
     parser.add_argument("--transport-check", action="store_true", help="Compare repeated state reads with one group request; show numeric API errors")
     parser.add_argument("--alternative", action="store_true", help="Read B1 display/iECO and compact group queries using midea-local")
