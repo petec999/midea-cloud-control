@@ -96,6 +96,36 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.display_on)
         self.client._send.assert_awaited_once()
 
+    async def test_eco_delayed_confirmation_and_conflicts(self):
+        self.client._query_locked = AsyncMock(side_effect=[
+            state(operational_mode=2, turbo=True, sleep=True),
+            state(operational_mode=2, eco=False),
+            state(operational_mode=2, eco=True),
+        ])
+
+        async def send(_, command):
+            self.assertTrue(command.eco)
+            self.assertFalse(command.turbo)
+            self.assertFalse(command.sleep)
+            self.assertFalse(command.freeze_protection)
+            return state(operational_mode=2, eco=False)
+
+        self.client._send = AsyncMock(side_effect=send)
+        with patch("_mcc_test.client.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.client.set_state(1, verify=True, eco=True)
+        self.assertTrue(result.eco)
+        self.client._send.assert_awaited_once()
+        self.assertEqual(self.client._query_locked.await_count, 3)
+
+    async def test_unconfirmed_display_returns_actual_state(self):
+        self.client._query_locked = AsyncMock(return_value=state(display_on=True))
+        self.client._send = AsyncMock(return_value=state())
+        with patch("_mcc_test.client.asyncio.sleep", new_callable=AsyncMock):
+            result = await self.client.set_display(1, False)
+        self.assertTrue(result.display_on)
+        self.client._send.assert_awaited_once()
+        self.assertEqual(self.client._query_locked.await_count, 4)
+
 
 if __name__ == "__main__":
     unittest.main()
