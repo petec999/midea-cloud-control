@@ -78,8 +78,7 @@ async def probe_command(send, command, expected, fields, timeout):
 async def run(args):
     # Import after argument parsing so --help works without dependencies.
     from probe import MideaCloudClient
-    from _mcc.protocol import (transparent_send, _PACKET_HEADER, _ENDPOINT,
-                               derive_data_key, aes_encrypt, aes_decrypt, unwrap_reply)
+    from _mcc.protocol import transparent_send
     from msmart.device.AC import command as ac
 
     user = args.user
@@ -114,29 +113,14 @@ async def run(args):
             aid = ids[choice - 1]
 
         async def send(command):
-            raw = command.tobytes()
-            if args.envelope == "legacy":
-                frame = await transparent_send(client._cloud, int(aid), raw, client._app_key)
-            else:
-                # Experimental fixed-size cloud envelope, keeping the complete
-                # msmart frame (including its existing checksum) unchanged.
-                if len(raw) > 46:
-                    raise ValueError("Frame too large for fixed body")
-                packet = list(_PACKET_HEADER) + list(raw) + [0] * (46 - len(raw))
-                packet[4] = len(packet)
-                csv = ",".join(str(b - 256 if b >= 128 else b) for b in packet)
-                cloud = client._cloud
-                key = derive_data_key(cloud._access_token, client._app_key)
-                data = cloud._make_general_data()
-                data.update(order=aes_encrypt(csv, key), funId="0000", applianceId=str(aid))
-                response = await cloud._api_request(endpoint=_ENDPOINT, data=data)
-                frame = unwrap_reply(aes_decrypt(response["reply"], key)) if response and response.get("reply") else None
+            frame = await transparent_send(client._cloud, int(aid),
+                                           command.tobytes(), client._app_key)
             return ac.Response.construct(frame) if frame is not None else None
 
         report = {"library_versions": {
             name: importlib.metadata.version(name)
             for name in ("msmart-ng", "midea-local")
-        }, "envelope": args.envelope, "state": {}, "capabilities": {}, "groups": {}}
+        }, "state": {}, "capabilities": {}, "groups": {}}
         report["state"] = await probe_command(
             send, ac.GetStateCommand(), ac.StateResponse, STATE, args.timeout)
         await asyncio.sleep(args.delay)
@@ -199,8 +183,6 @@ def main():
     parser.add_argument("--id", type=int, help="Optional appliance ID; auto-select a single appliance")
     parser.add_argument("--groups", nargs="+", type=int, choices=tuple(GROUPS),
                         default=list(GROUPS))
-    parser.add_argument("--envelope", choices=("legacy", "fixed46"), default="legacy",
-                        help="Experimental fixed 46-byte body; default unchanged")
     parser.add_argument("--delay", type=float, default=2.0, help="Seconds between requests (min 2)")
     parser.add_argument("--timeout", type=float, default=20.0, help="Timeout per request in seconds")
     args = parser.parse_args()
