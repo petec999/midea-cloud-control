@@ -32,7 +32,16 @@ async def run(args):
     password = getpass.getpass("NetHome Plus password: ")
     # Library debug output can contain private account and device metadata.
     logging.getLogger("midealocal").setLevel(logging.CRITICAL)
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=40)) as session:
+    stages = {}
+    trace = aiohttp.TraceConfig()
+
+    async def response_end(session, context, params):
+        if stages.get("download_started"):
+            stages["download_http_status"] = params.response.status
+
+    trace.on_request_end.append(response_end)
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=40),
+                                     trace_configs=[trace]) as session:
         cloud = get_midea_cloud("NetHome Plus", session, account, password)
         if not await asyncio.wait_for(cloud.login(), 60):
             print('{"status":"login_failed"}')
@@ -51,17 +60,51 @@ async def run(args):
             return 1
         report = {"device": "Jaśminowa", "type": "0xac",
                   "model_number": device.get("model_number"),
-                  "online": device.get("online")}
+                  "online": device.get("online"),
+                  "serial_length": len(serial),
+                  "serial_is_hex": bool(re.fullmatch(r"[0-9a-fA-F]+", serial))}
+        original_api = cloud._api_request
+        original_fetch = cloud._fetch_lua_file
+
+        async def diagnostic_api(*args, **kwargs):
+            endpoint = kwargs.get("endpoint", args[0] if args else "")
+            if "luaGet" not in endpoint:
+                return await original_api(*args, **kwargs)
+            kwargs["raise_for_error"] = True
+            stages["lua_api_called"] = True
+            response = await original_api(*args, **kwargs)
+            stages["lua_api_result"] = "empty" if response is None else "received"
+            if isinstance(response, dict):
+                stages["has_url"] = bool(response.get("url"))
+                stages["has_filename"] = bool(response.get("fileName"))
+            return response
+
+        async def diagnostic_fetch(*args, **kwargs):
+            stages["download_started"] = True
+            result = await original_fetch(*args, **kwargs)
+            stages["download_result"] = "saved" if result else "empty"
+            return result
+
+        cloud._api_request = diagnostic_api
+        cloud._fetch_lua_file = diagnostic_fetch
+        report["stages"] = stages
         # Use the library's vendor endpoint and decryption implementation.
         # Keep the original download private and move only to a fixed safe name.
         out = Path.home() / "midea-lua"
         out.mkdir(mode=0o700, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="download-", dir=out) as tmp:
-            path = await asyncio.wait_for(cloud.download_lua(
+            try:
+                path = await asyncio.wait_for(cloud.download_lua(
                 tmp, dtype, serial,
                 model_number=str(device["model_number"]) if device.get("model_number") else None,
                 manufacturer_code=device.get("manufacturer_code") or "0000",
-            ), 90)
+                ), 90)
+            except Exception as exc:
+                report.update(status="error", error_type=type(exc).__name__)
+                if isinstance(getattr(exc, "code", None), int):
+                    report["cloud_error_code"] = exc.code
+                print(json.dumps(report, indent=2))
+                return 2
             if not path:
                 report["status"] = "no_lua_returned"
                 print(json.dumps(report, indent=2))
