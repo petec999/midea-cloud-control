@@ -49,10 +49,10 @@ class MideaCloudCoordinator(DataUpdateCoordinator[StateResponse]):
         """Send a switch command and confirm its readback."""
         try:
             if field == "display_on":
-                await self.client.set_display(self.appliance_id, enabled)
+                result = await self.client.set_display(self.appliance_id, enabled)
             else:
-                await self.client.set_state(self.appliance_id, **{field: enabled})
-            result = await self.client.query(self.appliance_id)
+                result = await self.client.set_state(
+                    self.appliance_id, verify=True, **{field: enabled})
         except CloudError as err:
             raise HomeAssistantError(f"Cloud command failed: {err}") from err
         self.async_set_updated_data(result)
