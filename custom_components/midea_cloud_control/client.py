@@ -122,6 +122,16 @@ class MideaCloudClient:
         async with self._lock:
             return await self._query_locked(appliance_id)
 
+    async def _confirm_locked(self, appliance_id: int, expected: dict[str, Any]) -> StateResponse:
+        """Allow the cloud/device state to settle; repeat reads only."""
+        result = None
+        for delay in (1, 2, 3):
+            await asyncio.sleep(delay)
+            result = await self._query_locked(appliance_id)
+            if all(getattr(result, field, None) == value for field, value in expected.items()):
+                return result
+        return result
+
     async def set_state(self, appliance_id: int, *, beep: bool = False,
                         verify: bool = False, **changes: Any) -> StateResponse:
         """Serialize read/merge/write; preserve non-null reported fields."""
@@ -139,9 +149,16 @@ class MideaCloudClient:
                     setattr(command, field, value)
             for field, value in changes.items():
                 setattr(command, field, value)
+            if changes.get("eco") is True:
+                if not current.power_on or current.operational_mode != 2:
+                    raise CloudError("Enable ECO only while cooling")
+                command.turbo = False
+                command.freeze_protection = False
+                command.sleep = False
             response = await self._send(appliance_id, command)
-            if verify or not isinstance(response, StateResponse):
-                # Some devices acknowledge without a complete state.
+            if verify:
+                return await self._confirm_locked(appliance_id, changes)
+            if not isinstance(response, StateResponse):
                 return await self._query_locked(appliance_id)
             return response
 
@@ -160,7 +177,4 @@ class MideaCloudClient:
                 await self._send(appliance_id, command)
             except CloudError:
                 pass
-            result = await self._query_locked(appliance_id)
-            if result.display_on != enabled:
-                raise CloudError("Display change not confirmed")
-            return result
+            return await self._confirm_locked(appliance_id, {"display_on": enabled})
