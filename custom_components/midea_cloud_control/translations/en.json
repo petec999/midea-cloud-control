@@ -12,7 +12,9 @@
       },
       "appliance": {
         "title": "Select appliance",
-        "data": { "appliance_id": "Appliance" }
+        "data": {
+          "appliance_id": "Appliance"
+        }
       }
     },
     "error": {
@@ -22,6 +24,48 @@
     },
     "abort": {
       "already_configured": "This appliance is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Cloud polling",
+        "data": {
+          "scan_interval": "Refresh interval (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "indoor_temperature": {
+        "name": "Indoor temperature"
+      },
+      "outdoor_temperature": {
+        "name": "Outdoor temperature"
+      },
+      "error_code": {
+        "name": "Error code"
+      }
+    },
+    "binary_sensor": {
+      "filter_alert": {
+        "name": "Filter alert"
+      }
+    },
+    "switch": {
+      "eco": {
+        "name": "ECO"
+      },
+      "turbo": {
+        "name": "Turbo"
+      },
+      "sleep": {
+        "name": "Sleep"
+      },
+      "display_on": {
+        "name": "Display"
+      }
     }
   }
 }
