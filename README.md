@@ -73,6 +73,40 @@ the matching app from the dropdown, then select your appliance.
 | Swing | off, horizontal, vertical, both |
 | Attributes | outdoor temperature, eco, turbo, sleep, filter alert, error code |
 
+## 0.2.0 development branch
+
+This is a candidate build, not a hardware-validated release. Existing climate
+entity IDs and configuration entries are retained. New read-only entities:
+indoor/outdoor temperature, filter alert and numeric error code. No extra
+cloud requests are needed for these sensors.
+
+Optional ECO, Turbo, Sleep and Display switches are disabled by default in
+the entity registry. Enable individually only on appliances you own and
+can test. ECO activation is restricted to cooling. Commands are checked
+against subsequent state readback; display uses a conditional toggle and
+is never automatically repeated. The basic state response does not prove
+that these commands are supported by every device.
+
+Polling is configurable per appliance (30–300 seconds). Reads may reconnect
+once after a failure, with a 120-second reconnect cooldown. Writes are not
+automatically retried. The read/merge/write transaction is serialized per
+client, not across independent installations or the vendor app.
+
+Advanced compressor, energy and defrost requests returned no reply on the
+tested cloud-connected appliance; these are not enabled in this build.
+
+### Offline regression tests
+
+```bash
+git fetch origin
+git switch v0.2.0
+python -m unittest discover -s tests -v
+```
+
+Run with the project's Python environment and dependencies installed. Tests
+mock cloud requests and exercise the real installed command encoder. These
+are client tests, not a substitute for a Home Assistant or hardware test.
+
 ## Command-line probe
 
 Useful for confirming your account and appliance work before touching Home

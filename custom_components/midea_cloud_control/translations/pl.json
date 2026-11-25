@@ -1,0 +1,71 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Midea Cloud Control",
+        "description": "Zaloguj się na konto aplikacji, w której zarejestrowano klimatyzator. Sterowanie odbywa się przez chmurę.",
+        "data": {
+          "username": "Adres e-mail",
+          "password": "Hasło",
+          "cloud": "Aplikacja / chmura"
+        }
+      },
+      "appliance": {
+        "title": "Wybierz urządzenie",
+        "data": {
+          "appliance_id": "Urządzenie"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Logowanie nie powiodło się. Sprawdź dane i wybraną aplikację.",
+      "no_appliances": "Nie znaleziono urządzeń na koncie.",
+      "unknown": "Nieoczekiwany błąd."
+    },
+    "abort": {
+      "already_configured": "Urządzenie jest już skonfigurowane."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Odpytywanie chmury",
+        "data": {
+          "scan_interval": "Interwał odświeżania (sekundy)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "indoor_temperature": {
+        "name": "Temperatura wewnętrzna"
+      },
+      "outdoor_temperature": {
+        "name": "Temperatura zewnętrzna"
+      },
+      "error_code": {
+        "name": "Kod błędu"
+      }
+    },
+    "binary_sensor": {
+      "filter_alert": {
+        "name": "Alarm filtra"
+      }
+    },
+    "switch": {
+      "eco": {
+        "name": "ECO"
+      },
+      "turbo": {
+        "name": "Turbo"
+      },
+      "sleep": {
+        "name": "Tryb nocny"
+      },
+      "display_on": {
+        "name": "Wyświetlacz"
+      }
+    }
+  }
+}

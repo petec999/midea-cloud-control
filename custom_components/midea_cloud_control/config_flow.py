@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, ConfigEntry, OptionsFlow
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -14,7 +14,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .client import SUPPORTED, CloudError, MideaCloudClient
-from .const import CONF_APPLIANCE_ID, CONF_APPLIANCE_NAME, CONF_CLOUD, DOMAIN
+from .const import CONF_APPLIANCE_ID, CONF_APPLIANCE_NAME, CONF_CLOUD, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +31,10 @@ class MideaCloudConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the configuration flow."""
 
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return MideaCloudOptionsFlow()
 
     def __init__(self) -> None:
         self._credentials: dict[str, Any] = {}
@@ -96,3 +100,20 @@ class MideaCloudConfigFlow(ConfigFlow, domain=DOMAIN):
             )
         })
         return self.async_show_form(step_id="appliance", data_schema=schema)
+
+
+class MideaCloudOptionsFlow(OptionsFlow):
+    """Configure polling without changing account credentials."""
+
+    async def async_step_init(self, user_input=None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+        default = self.config_entry.options.get(
+            CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds()))
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Required(CONF_SCAN_INTERVAL, default=default):
+                    vol.All(vol.Coerce(int), vol.Range(min=30, max=300)),
+            }),
+        )
