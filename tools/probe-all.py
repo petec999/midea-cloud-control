@@ -117,6 +117,81 @@ async def run(args):
                                            command.tobytes(), client._app_key)
             return ac.Response.construct(frame) if frame is not None else None
 
+        if args.vendor_frames:
+            # Independent implementation of the vendor Lua query layouts.
+            # No vendor source or private device identifiers are embedded here.
+            import secrets
+
+            def crc8(data):
+                crc = 0
+                for byte in data:
+                    crc ^= byte
+                    for _ in range(8):
+                        crc = (crc >> 1) ^ (0x8c if crc & 1 else 0)
+                return crc
+
+            def frame(prefix, length):
+                body = bytearray(length)
+                body[:len(prefix)] = bytes(prefix)
+                body[-2] = 1 + secrets.randbelow(254)
+                body[-1] = crc8(body[:-1])
+                header = bytearray([0xaa, 10 + len(body), 0xac, 0, 0, 0, 0, 0, 0, 3])
+                packet = header + body
+                packet.append((-sum(packet[1:])) & 0xff)
+                return bytes(packet)
+
+            async def vendor_read(label, packet):
+                try:
+                    raw = await asyncio.wait_for(transparent_send(
+                        client._cloud, int(aid), packet, client._app_key), args.timeout)
+                    result = {"request": packet.hex(), "status": "no_reply"}
+                    if raw is None:
+                        return result
+                    body = raw[10:-2]
+                    result.update(status="reply", response_type=body[0] if body else None,
+                                  response_length=len(raw))
+                    if len(body) >= 19 and body[0] == 0xc0:
+                        result["eco"] = bool(body[9] & 0x10)
+                        result["power_saving"] = bool(body[8] & 8)
+                        result["turbo"] = bool((body[8] & 0x20) or (body[10] & 2))
+                        result["display_code"] = (body[14] & 0x70) >> 4
+                    elif len(body) >= 19 and body[0] == 0xc1 and body[3] == 0x44:
+                        result["power_raw"] = int.from_bytes(body[16:19], "big")
+                    elif len(body) >= 5 and body[0] == 0xc1 and body[3] & 15 == 5:
+                        result["humidity_raw"] = body[4]
+                    return result
+                except Exception as exc:
+                    return {"status": "error", "error_type": type(exc).__name__}
+
+            # Full-length vendor query bodies, not compact group commands.
+            queries = [
+                ("state", frame([0x41, 0x81, 0, 0xff], 22)),
+                ("power", frame([0x41, 0x21, 1, 0x44], 22)),
+                ("humidity", frame([0x41, 0x21, 1, 0x45], 22)),
+                ("capabilities", bytes.fromhex("aa0eac00000000000303b50100" +
+                    f"{crc8(bytes.fromhex('b50100')):02x}" + "3d")),
+                ("state_after", frame([0x41, 0x81, 0, 0xff], 22)),
+            ]
+            report = {}
+            for label, packet in queries:
+                if report:
+                    await asyncio.sleep(args.delay)
+                report[label] = await vendor_read(label, packet)
+            if args.test_display:
+                # Toggle is intentionally opt-in and sent exactly once.
+                # No retry even if the cloud returns no acknowledgement.
+                if report["state_after"]["status"] == "reply" and "display_code" in report["state_after"]:
+                    await asyncio.sleep(args.delay)
+                    report["display_toggle"] = await vendor_read(
+                        "display_toggle", frame([0x41, 0x61, 0, 0xff, 2, 0, 2, 0], 23))
+                    await asyncio.sleep(args.delay)
+                    report["display_after"] = await vendor_read(
+                        "display_after", frame([0x41, 0x81, 0, 0xff], 22))
+                else:
+                    report["display_toggle"] = {"status": "skipped_no_state"}
+            print(json.dumps(report, indent=2))
+            return 0
+
         if args.transport_check:
             # The normal transport hides API errors behind a None return.
             # Ask the library for typed errors; never print raw HTTP bodies.
@@ -285,6 +360,8 @@ def main():
     parser.add_argument("--id", type=int, help="Optional appliance ID; auto-select a single appliance")
     parser.add_argument("--groups", nargs="+", type=int, choices=tuple(GROUPS),
                         default=list(GROUPS))
+    parser.add_argument("--vendor-frames", action="store_true", help="Probe vendor-specific read frames")
+    parser.add_argument("--test-display", action="store_true", help="With --vendor-frames: send exactly one display toggle")
     parser.add_argument("--transport-check", action="store_true", help="Compare repeated state reads with one group request; show numeric API errors")
     parser.add_argument("--alternative", action="store_true", help="Read B1 display/iECO and compact group queries using midea-local")
     parser.add_argument("--protocol-version", type=int, choices=(0, 3), default=0)
