@@ -72,7 +72,10 @@ async def run(args):
     from _mcc.protocol import transparent_send
     from msmart.device.AC import command as ac
 
-    user = args.user or input("App account email: ").strip()
+    user = args.user
+    if not user:
+        print("App account email: ", end="", file=sys.stderr, flush=True)
+        user = input().strip()
     password = getpass.getpass("App password: ")
     client = MideaCloudClient(user, password, args.cloud)
     try:
@@ -93,7 +96,8 @@ async def run(args):
         else:
             for i, aid in enumerate(ids, 1):
                 print(f"{i}: {appliances[aid].get('name') or 'Appliance'}", file=sys.stderr)
-            choice = int(input("Select appliance number: "))
+            print("Select appliance number: ", end="", file=sys.stderr, flush=True)
+            choice = int(input())
             if not 1 <= choice <= len(ids):
                 print("Invalid selection.", file=sys.stderr)
                 return 1
