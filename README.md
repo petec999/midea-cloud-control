@@ -86,6 +86,38 @@ python tools/probe.py set   --user EMAIL --password PW --id APPLIANCE_ID --temp 
 
 Do not commit credentials, access tokens, appliance identifiers or captured authentication responses. Command-line passwords can be visible in shell history and process listings; use a dedicated test environment and avoid sharing command output containing secrets.
 
+## Extended read-only diagnostic probe (experimental)
+
+Use the probe to discover what the appliance and its cloud relay actually support.
+No setting changes, write commands, raw frames or credentials are included in the
+JSON report. Run from a local Linux terminal with Python 3.10+:
+
+```bash
+git clone https://github.com/petec999/midea-cloud-control.git
+cd midea-cloud-control
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -U midea-local msmart-ng pycryptodome aiohttp
+python tools/probe-all.py --cloud "Ariston Clima" > midea-report.json
+```
+
+The script prompts for credentials interactively; choose the correct cloud
+(Ariston Clima, NetHome Plus or Midea Air). A single appliance is selected
+automatically; for multiple appliances choose its number. Prompts may appear
+on standard output, so for a clean JSON file supply `--user` and `--id`
+when there is more than one appliance, or run without redirection.
+
+It queries state, capabilities, then groups 1, 2, 4, 5, 7 and 11 sequentially
+with a two-second delay and bounded timeouts. Unsupported library classes,
+unexpected responses and failed optional requests are recorded independently.
+Group 4 reports both energy encodings; neither should be assumed correct until
+compared with a known meter. A successful response is not proof every field is
+valid; zero and null have different meanings. A failed query does not prove
+the hardware lacks that capability. Do not run this continuously.
+
+The probe is experimental; cloud/device compatibility must be confirmed on
+real hardware. It does not install or change the Home Assistant integration.
+
 ## Related project
 
 [Home IoT Telemetry](https://github.com/petec999/home-iot-telemetry) provides complementary Home Assistant dashboard diagnostics.
