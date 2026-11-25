@@ -103,9 +103,8 @@ python tools/probe-all.py --cloud "Ariston Clima" > midea-report.json
 
 The script prompts for credentials interactively; choose the correct cloud
 (Ariston Clima, NetHome Plus or Midea Air). A single appliance is selected
-automatically; for multiple appliances choose its number. Prompts may appear
-on standard output, so for a clean JSON file supply `--user` and `--id`
-when there is more than one appliance, or run without redirection.
+automatically; for multiple appliances choose its number. Prompts and progress go to the terminal (standard error); standard output
+contains the JSON report.
 
 It queries state, capabilities, then groups 1, 2, 4, 5, 7 and 11 sequentially
 with a two-second delay and bounded timeouts. Unsupported library classes,
