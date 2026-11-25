@@ -104,7 +104,11 @@ class MideaCloudClient:
         command = SetStateCommand()
         command.beep_on = beep
         for field in _CARRIED_STATE:
-            setattr(command, field, getattr(current, field))
+            value = getattr(current, field, None)
+            # Short state responses omit optional fields (e.g. target_humidity).
+            # Keep the command encoder default rather than copying None.
+            if value is not None:
+                setattr(command, field, value)
         for field, value in changes.items():
             setattr(command, field, value)
 
