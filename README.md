@@ -17,9 +17,7 @@ POST /v1/iot/secure/getToken  →  {"msg":"system error","errorCode":9999}
 ```
 
 **The endpoint returned errors during development.** Appliances onboarded before the
-shutdown keep working, because their token was already stored. Anything
-onboarded afterwards cannot be added to Home Assistant at all — the vendor app
-still works, but local control may be unavailable without another way to obtain the credentials.
+shutdown keep working, because their token was already stored. Newly onboarded appliances may lack retrievable local credentials even though the vendor app still works.
 
 This integration takes a different route. The legacy endpoint
 
@@ -73,9 +71,9 @@ the matching app from the dropdown, then select your appliance.
 | Swing | off, horizontal, vertical, both |
 | Attributes | outdoor temperature, eco, turbo, sleep, filter alert, error code |
 
-## 0.2.0 development branch
+## Current fork: 0.2.1
 
-This is a candidate build, not a hardware-validated release. Existing climate
+The main branch contains version 0.2.1. Compatibility varies by appliance and is not universally hardware-validated. Existing climate
 entity IDs and configuration entries are retained. New read-only entities:
 indoor/outdoor temperature, filter alert and numeric error code. No extra
 cloud requests are needed for these sensors.
@@ -98,8 +96,8 @@ tested cloud-connected appliance; these are not enabled in this build.
 ### Offline regression tests
 
 ```bash
-git fetch origin
-git switch v0.2.0
+git clone https://github.com/petec999/midea-cloud-control.git
+cd midea-cloud-control
 python -m unittest discover -s tests -v
 ```
 
@@ -150,6 +148,12 @@ the hardware lacks that capability. Do not run this continuously.
 
 The probe is experimental; cloud/device compatibility must be confirmed on
 real hardware. It does not install or change the Home Assistant integration.
+
+## Upstream contributions
+
+The fork's focused proposals remain open in the original repository: [#2 optional state fields](https://github.com/AndreiVasile96/midea-cloud-control/pull/2), [#4 cloud reliability](https://github.com/AndreiVasile96/midea-cloud-control/pull/4), [#5 read-only entities](https://github.com/AndreiVasile96/midea-cloud-control/pull/5) and [#6 Turbo/Sleep](https://github.com/AndreiVasile96/midea-cloud-control/pull/6). These branches remain separate; no claim of upstream acceptance.
+
+The companion dashboard exposes Turbo and Sleep only on the tested installation; ECO/LED are omitted there. Optional switches remain model-dependent.
 
 ## Related project
 
